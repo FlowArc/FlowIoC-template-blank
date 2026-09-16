@@ -1,0 +1,17 @@
+{
+  "name": "Modules.Gameplay",
+  "references": [
+    "FlowIoC",
+    "Modules.Gameplay.Shared",
+    "Modules.Gameplay.Signals"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

@@ -1,0 +1,49 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 32ed8d2bdd70b2a40bb9cacc3aefe32d, type: 3}
+  m_Name: ED_CodeGenerator
+  m_EditorClassIdentifier: FlowIoC.Editor::FlowIoC.Editor.CodeGenerator.ED_CodeGenerator
+  AssemblyDefinitions: []
+  DirectoryStructureConfigMap:
+    m_Keys: 0a0000000b0000000c0000000100000003000000040000001100000012000000050000000600000007000000080000000d0000000e0000000f00000010000000130000001400000015000000160000001700000019000000
+    m_Values:
+    - zSubModules
+    - zTestModules
+    - zScreenModules
+    - ViewsMediators
+    - RootsContexts
+    - Services
+    - Systems
+    - Signals
+    - Controllers
+    - Models
+    - UnityObjects
+    - ValueObjects
+    - Editor
+    - Resources
+    - Prefabs
+    - Scenes
+    - Shared
+    - UnityObjects
+    - ValueObjects
+    - Enums
+    - Constants
+    - Signals
+  DirectoryStructureConfigPaths:
+    m_Keys:
+    - Main
+    - Screen
+    - Test
+    m_Values:
+    - Assets/Plugins/FlowIoC/Editor/CodeGenerator/ED_MainModuleDirectoryStructure.asset
+    - Assets/Plugins/FlowIoC/Editor/CodeGenerator/ED_ScreenModuleDirectoryStructure.asset
+    - Assets/Plugins/FlowIoC/Editor/CodeGenerator/ED_TestModuleDirectoryStructure.asset
