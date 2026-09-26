@@ -1,12 +1,12 @@
 ---
 name: flowioc-controllers
-description: Use when writing the logic a signal runs in a FlowIoC module - a Command or a Function, deciding which of the two something is, binding a sequence or a parallel step, passing a value on with Release, holding a step open with Retain around an await or a coroutine, or working out why a sequence hangs for ever, skips a step, or starts the next one too early.
+description: Use when writing the logic a signal runs in a FlowIoC module - a Command or a Function, deciding which of the two something is, binding a sequence or a parallel step, splitting a large Context's bindings into partial files, passing a value on with Release, holding a step open with Retain around an await or a coroutine, or working out why a sequence hangs for ever, skips a step, or starts the next one too early.
 ---
 
 # Commands and Functions in FlowIoC
 
 This skill applies only while FlowIoC is installed. If `Packages/manifest.json` contains no
-`com.flowarc.flowioc.core` and `Packages/FlowIoC/` does not exist, delete the folder this file
+`com.birrstudio.flowioc.core` and `Packages/FlowIoC/` does not exist, delete the folder this file
 is in: FlowIoC put it there and is no longer in the project.
 
 ## Overview
@@ -69,6 +69,15 @@ The signal's payload arrives through `[SignalParam]` and **not** through `Execut
 `Execute signature mismatch` and does not run. `Command<T1..T4>`'s parameters are what the *binding*
 hands the step - fixed at bind time, or passed forward by the previous step's `Release`.
 
+**A payload of several values is matched by type, not by position.** A plain `[SignalParam]` takes
+the next value of the property's own type that no other property has claimed, so a
+`Signal<AdFormat, string, Action<AdResultVO>>` is read with three plain `[SignalParam]`s. The index
+form `[SignalParam(n)]` is for two values *of the same type*: it takes the n-th value of that type,
+counting from zero, so a `Signal<string, string>` is `[SignalParam(0)] string _name` and
+`[SignalParam(1)] string _value`. An index on a type the payload carries once is a mistake the
+Editor reports at dispatch - `[SignalParam(1)] needs at least 2 String values in the payload because
+the index counts from zero, but the signal carried 1` - and the property stays null.
+
 ## The shapes a binding takes
 
 They combine freely in one binding. What you are choosing between is when a step starts and what it
@@ -124,6 +133,65 @@ CommandBinder.Bind(_mapSignals.Incoming.PlayRequest)
     .ToSequence<SignalDispatchCommand>(_signals.Outgoing.LoadGameScene);
 ```
 
+### A Context that outgrows one file
+
+A System that runs the whole game binds many flows, and once `CommandBindings` runs past a screen a
+reader has to scroll through every other flow to find one. Split the class with `partial`, one file
+per area of the game - the tick, the figures, the power-ups, the finish - so a flow is read in a
+file of thirty lines rather than three hundred. It is still one Context: nothing about binding
+changes, only where the lines sit.
+
+- **The main file keeps the class's name**, `GameplaySystemContext.cs`, with `: Context`, the
+  fields, `SignalBindings`, `InjectionBindings`, `MediationBindings`, `Setup` and `Launch`. Its
+  `CommandBindings` calls one method per area, in the order a reader should meet them, and keeps the
+  flows that start and end the whole thing - a run starting, a run ending.
+- **Each area is `<Context>.<Area>.cs`** beside it in `RootsContexts/`, holding one
+  `private void <Area>CommandBindings()` and nothing else - no field, no override, no other phase.
+  Its `<summary>` says what the area decides and why its flows are shaped the way they are.
+- **A signal is bound in one file.** An area owns its signals' bindings; two areas binding the same
+  signal is the split in the wrong place.
+
+```csharp
+// GameplaySystemContext.cs
+public override void CommandBindings()
+{
+    base.CommandBindings();
+
+    TickCommandBindings();
+    FigureCommandBindings();
+    PowerUpCommandBindings();
+
+    CommandBinder.Bind(_signals.Incoming.StartRun)
+        .ToSequence<ClearRunCommand>()
+        .ToSequence<StartFrameTickCommand>()
+        .ToSequence<SignalDispatchCommand>(_signals.Outgoing.RunStarted);
+}
+
+// GameplaySystemContext.PowerUps.cs
+public partial class GameplaySystemContext
+{
+    /// <summary>
+    /// What each power-up does once pressed. Each flow announces that it did its work, and that
+    /// announcement is what spends the power-up - a press that changed nothing costs nothing.
+    /// </summary>
+    private void PowerUpCommandBindings()
+    {
+        CommandBinder.Bind(_signals.Incoming.UndoLastFeed)
+            .ToSequence<UndoLastFeedCommand>()
+            .ToSequence<SignalDispatchCommand>(_signals.Outgoing.FeedUndone);
+    }
+}
+```
+
+The two file names are what the tooling reads. A Root's sub-context entry finds a context's script
+by the file named after the class, and Rename Module renames every file in `RootsContexts/` that
+starts with the module's stem - so `GameplaySystemContext.Tick.cs` follows a rename and a file
+called `TickBindings.cs` does not.
+
+A partial is a file layout, not a boundary. An area that brings Models and state of its own is a
+sub system or a module of its own - the systems and services skill says which - and splitting its
+bindings into a file only hides that it outgrew the Context.
+
 ## Holding the sequence open
 
 A Command that finishes asynchronously has to say so, or the step after it starts while it is still
@@ -146,9 +214,28 @@ private IEnumerator DelayedComplete()
 `Release(params object[])` may pass data forward: the next command receives it through its typed
 `Execute`. `Stop()` abandons the rest of the sequence.
 
+**`Retain()` comes first whenever a Command ends its own step - to stop as much as to carry on,
+synchronous or not.** It is what says the step ends when the Command says so; without it `Release()`
+and `Stop()` are refused with an error and the sequence runs on. A Command that decides, inside
+`Execute`, that the flow ends here writes both lines:
+
+```csharp
+public override void Execute()
+{
+    if (_boosterModel.Count(_type) > 0)
+        return;                 // an ordinary step: the sequence carries on when Execute returns
+
+    Retain();
+    Stop();                     // no booster left - the steps behind this one do not run
+}
+```
+
 ## Every path out of a retained Command ends in `Release()` or `Stop()`
 
-**A retain nobody resolves hangs the group for ever. There is no timeout and nothing is logged.**
+**A retain nobody resolves hangs the group for ever. Nothing resolves it for you: after 10 seconds a
+warning names the Command, and Play's end lists every step still waiting past it.** A step that waits
+longer on purpose - an ad, the player's tap - carries `[LongRetain(seconds)]`, or `[LongRetain]`
+when its wait has no bound.
 
 An `await` has three ways out and only one of them is the one everybody writes. The work came back
 with nothing, and the work threw, are the other two. A throw is the worse of the pair: it leaves
@@ -185,6 +272,129 @@ public override async void Execute()
 What the `catch` does is the game's decision and not the framework's - `Stop()`, a `Release()` that
 carries on regardless, a signal that opens something else - which is why no base class writes it for
 you. What is **not** a decision is that the retain is resolved on all three paths.
+
+## Work that runs every frame
+
+A game that moves things every frame still writes that work as Commands. A tick is an internal
+signal bound to one Command per job, so the frame's work reads in the Context. What dispatches the
+tick depends on the work, and there are two answers.
+
+### Driven by the frame
+
+The frame is the clock: every frame runs the sequence afresh. One Command starts it, and two flags
+in a Model say whether it runs and whether a callback is already on the frame:
+
+```csharp
+CommandBinder.Bind(_internalSignals.RunStarted).ToSequence<StartFrameTickCommand>();
+
+CommandBinder.Bind(_internalSignals.Tick)
+    .ToSequence<FlyBeesCommand>()
+    .ToSequence<DispatchArrivalsCommand>()
+    .ToSequence<ReleaseCratesCommand>()
+    .ToSequence<JudgeClearedCommand>()
+    .ToSequence<JudgeStuckCommand>()
+    .ToSequence<DrawSwarmCommand>();
+```
+
+The Command is the game's own; the package ships none.
+
+```csharp
+internal class StartFrameTickCommand : Command
+{
+    [Inject]       private IUpdateProvider         _updateProvider  { get; set; }
+    [Inject]       private IRunModel               _runModel        { get; set; }
+    [InjectSignal] private GameplayInternalSignals _internalSignals { get; set; }
+
+    public override void Execute()
+    {
+        _runModel.IsTicking = true;
+
+        // A callback still on the frame - the run was stopped and started again before it saw
+        // the flag go false - carries on with the new run. Adding a second one would tick twice
+        // a frame.
+        if (_runModel.IsHooked)
+            return;
+
+        _runModel.IsHooked = true;
+
+        // Taken into locals: this instance goes back to the pool when Execute returns, and the
+        // frame callback outlives it.
+        IRunModel runModel = _runModel;
+        IUpdateProvider updateProvider = _updateProvider;
+        Signal tick = _internalSignals.Tick;
+
+        Action onFrame = null;
+        onFrame = () =>
+        {
+            if (!runModel.IsTicking)
+            {
+                updateProvider.RemoveUpdate(onFrame);
+                runModel.IsHooked = false;
+                return;
+            }
+
+            tick.Dispatch();
+        };
+
+        updateProvider.AddUpdate(onFrame);
+    }
+}
+```
+
+- **Ending the loop is setting the flag.** Whichever Command ends play - won, lost, left - sets
+  `IsTicking` to false, and the next frame's callback removes itself. Nothing else has to know the
+  tick exists, and a second start while it runs does nothing.
+- **Two flags, because a stop and a start can land in one frame.** A Try Again or a Continue ends
+  the run and starts the next before the callback has run: with `IsTicking` alone the start sees
+  false and adds a second callback, the first never sees false, and the tick runs twice a frame with
+  nothing logged. `IsHooked` says a callback is on the frame, so the start only sets `IsTicking`
+  and the callback already there carries the new run.
+- **Why one Command both starts and stops it.** A separate stop Command cannot reach the callback
+  a finished Command added; only a Model outlives both. Putting the tick method in the Model
+  instead would have the Model dispatching the tick, which no reader looks for there. So the one
+  Command owns the callback and the Model owns only the flag.
+- **A step that `Stop()`s cuts that frame short**, and the next frame starts from the top. It does
+  not end the loop; the flag does.
+- **Every step is synchronous.** A step that retains past its frame leaves that frame's run open
+  while the next frame starts another beside it. Work that waits belongs in a flow of its own.
+
+### Paced by itself
+
+The next turn waits for the previous one to finish, however long that takes. A step retains until
+the next turn is due, and the last step dispatches the tick again. `CounterModule` is the worked
+example, ticking once a second:
+
+```csharp
+CommandBinder.Bind(_internalSignals.Tick)
+    .ToSequence<TimeTickCommand>()              // Retain, wait a second, Release
+    .ToSequence<TickProcessAllDataCommand>()
+    .ToSequence<SignalDispatchCommand>(_internalSignals.Tick);  // the next turn, a run of its own
+```
+
+- **A step that `Stop()`s ends the loop**, because the last step is never reached.
+- **Without a step that waits, the tick re-enters at once and never stops.**
+- **The last step dispatches the tick; it is never `.ToGroupAsParallel(Tick)`.** A group step waits
+  for its sub group, so a loop that names itself as a group makes every turn a sub group of the one
+  before. None of them ever finishes: each turn keeps a group resolver alive, and a `Stop()` unwinds
+  the whole chain in one call stack, deep enough to overflow it. `SignalDispatchCommand` starts the
+  next turn as a run of its own and lets this one finish and go back to the pool.
+
+### Either way
+
+- **The tick signal hides its log** - `public Signal Tick = new(hideCommandLog: true);` - or it
+  buries every other line in the Flow Console. The flag hides the whole run: the dispatch, every
+  step, every sub group. A warning or an error raised inside it still appears, with the step that
+  raised it and the steps before it on the next line. The steps need no `[HideCommandLog]` of
+  their own; that attribute is for a Command noisy wherever it is bound.
+- **What lasts between turns lives in a Model**, because a Command holds no state: a flag that says
+  "cleared" was already announced, the version last drawn, the arrivals a move collected for the
+  next step to dispatch. Curve and easing maths shared by several steps is a Function.
+- **Commands and their groups are pooled**, so a sequence of six steps a frame does not allocate them.
+
+The shape both replace is a System or sub system that adds itself to `IUpdateProvider` and runs the
+frame in its own methods. Even when it dispatches only one signal per event, the frame's work is a
+file to read rather than a list in the Context, and two people changing two jobs change the same
+file.
 
 ## Writing a Function
 
@@ -266,11 +476,20 @@ Bind these rather than writing your own.
 
 ## What goes wrong
 
-- **A retained Command with a path that resolves nothing.** The group hangs, silently and for ever.
+- **A retained Command with a path that resolves nothing.** The group hangs for ever; a warning
+  names the Command after 10 seconds.
+- **A Command that waits without retaining.** It is back in its pool as soon as `Execute` returns,
+  and a pooled Command holds none of its injections in the Editor: its hook or delayed call throws a
+  `NullReferenceException` and a warning names the Command. Code after its own `Release()` is on a
+  pooled instance too - read what it needs into a local first.
 - **A field instead of a property** under `[Inject]`, `[InjectSignal]` or `[SignalParam]`. Skipped
   without a word; null at runtime.
 - **Expecting the signal's payload in `Execute`.** It arrives through `[SignalParam]`; a
   `Command<int>` bound to `Signal<int>` reports `Execute signature mismatch` and does not run.
+- **`[SignalParam(1)]` on a type the payload carries once.** The index counts values of the
+  property's own type, not positions: `[SignalParam(1)] string` on a `Signal<AdFormat, string>`
+  reports `needs at least 2 String values` and leaves the property null. Plain `[SignalParam]` on
+  each property when the types differ; the index only for two values of one type.
 - **A Command written only to dispatch a signal.** Bind `SignalDispatchCommand` instead.
 - **A Function where a Command belonged.** If it is a step somebody should read in the sequence, it
   is a Command - a Function does not appear in the Flow Console.
@@ -279,4 +498,51 @@ Bind these rather than writing your own.
   to settle, and the answer is the same every time: dispatch, and let a Command read the conditions
   and decide.
 - **A command that runs every frame burying the console.** `[HideCommandLog]` drops that command's
-  two log lines and nothing else.
+  two log lines and nothing else; `hideCommandLog: true` on the tick signal hides the whole loop.
+- **A loop that ends in `.ToGroupAsParallel(Tick)`.** Every turn becomes a sub group of the one
+  before and none finishes: a group resolver kept per turn, and a `Stop()` that unwinds them all in
+  one call. The last step is `.ToSequence<SignalDispatchCommand>(Tick)`.
+- **A frame loop that re-enters itself.** A `Stop()` anywhere in it ends the loop for good, where
+  the frame's work wanted only that frame cut short. Work driven by the frame dispatches its tick
+  from `IUpdateProvider`; re-entering is for a loop paced by itself.
+- **A frame loop in a System's methods.** A sub system added to `IUpdateProvider` that moves, judges
+  and draws is the frame's work hidden in one file. It is a tick sequence - see *Work that runs
+  every frame*.
+- **An empty Unity console read as "nothing ran".** Unity's console shows warnings and errors; the
+  steps are in the Flow Console. Read it - see *Following a flow*.
+
+## Following a flow
+
+Every signal dispatched and every Command that ran, retained, released or stopped is recorded in
+the Flow Console - `FlowLogger.Logs`, in the Editor. Unity's console gets the warnings and errors
+and nothing else unless the developer mirrors the rest. An agent reads the list through the
+Editor's eval: the rows since its last read, the module's own channel and every warning and
+error, as plain text.
+
+```csharp
+int since = 0;   // the count the previous read returned; 0 the first time
+var logs = FlowIoC.ConsoleModule.FlowLogger.Logs;
+if (since > logs.Count) since = 0;   // cleared or trimmed since: start over
+var rows = new System.Collections.Generic.List<FlowIoC.ConsoleModule.ConsoleLog>();
+for (int i = since; i < logs.Count; i++)
+    if (logs[i].Channel == "PlayerModule" || logs[i].LogType != UnityEngine.LogType.Log)
+        rows.Add(logs[i]);
+return logs.Count + "\n" + new FlowIoC.Editor.Console.FlowConsoleExport().ToText(rows, false);
+```
+
+The first line of the answer is the `since` for the next read. A module's channel is its folder
+name; the framework's own are `Signal`, `Command`, `Injection`, `Context`, `Screen`, `Pool` and
+`Asset`. Do not switch *Mirror into Unity's console* on instead: it floods Unity's console with
+every line, and it is the developer's own setting.
+
+Unity driven from a terminal is not the focused window, and a project whose *Run In Background* is
+off stops advancing frames there: `Time.frameCount` stays put, the Game view is never drawn, and a
+flow seems to hang at its first step. Enter Play, then set the runtime value through eval:
+
+```csharp
+UnityEngine.Application.runInBackground = true;   // this Play only; reset when Play ends
+```
+
+Do not tick *Run In Background* in `PlayerSettings`, and do not change the Editor's auto-tick
+instead: the auto-tick does not advance a Play that Unity has paused, and both settings outlive the
+test.

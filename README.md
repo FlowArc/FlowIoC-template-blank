@@ -1,6 +1,6 @@
 # FlowIoC-template-blank
 
-A blank Unity project with [FlowIoC](https://github.com/FlowArc/FlowIoC) already in it. Start a
+A blank Unity project with [FlowIoC](https://github.com/BirrStudio/FlowIoC) already in it. Start a
 game from this instead of from Unity's own template: the render pipeline is set up, the framework's
 setup modules are installed, and the first scene runs.
 
@@ -34,7 +34,7 @@ Nothing in the project depends on the repository's name. The product's name live
 
 - **Tools ▸ FlowIoC ▸ Wiki** - the framework's Help window, inside the Editor.
 - `AGENTS.md` - the architecture rules, the same ones an assistant follows.
-- The [FlowIoC repository](https://github.com/FlowArc/FlowIoC) - the full documentation and the
+- The [FlowIoC repository](https://github.com/BirrStudio/FlowIoC) - the full documentation and the
   changelog.
 
 Create modules, commands, models and views from **Tools ▸ FlowIoC** rather than by hand: the

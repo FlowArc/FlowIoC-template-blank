@@ -16,7 +16,7 @@ MonoBehaviour:
   FolderRules: []
   PathRules:
   - PathRule:
-      Value: /com.flowarc.flowioc.core
+      Value: /com.birrstudio.flowioc.core
       Type: 1
     Visual:
       ColorInfo:
@@ -40,7 +40,7 @@ MonoBehaviour:
         PixelOffsetX: 0
         PixelOffsetY: 0
   - PathRule:
-      Value: /com.flowarc.flowioc.core
+      Value: /com.birrstudio.flowioc.core
       Type: 0
     Visual:
       ColorInfo:
@@ -64,7 +64,7 @@ MonoBehaviour:
         PixelOffsetX: 0
         PixelOffsetY: 0
   - PathRule:
-      Value: /com.flowarc.flowioc.addons
+      Value: /com.birrstudio.flowioc.addons
       Type: 1
     Visual:
       ColorInfo:
@@ -88,7 +88,7 @@ MonoBehaviour:
         PixelOffsetX: 0
         PixelOffsetY: 0
   - PathRule:
-      Value: /com.flowarc.flowioc.addons
+      Value: /com.birrstudio.flowioc.addons
       Type: 0
     Visual:
       ColorInfo:

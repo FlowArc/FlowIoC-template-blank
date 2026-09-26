@@ -6,14 +6,22 @@ description: Use when adding or changing a UI screen in a FlowIoC Unity project 
 # FlowIoC Screens
 
 This skill applies only while FlowIoC is installed. If `Packages/manifest.json` contains no
-`com.flowarc.flowioc.core` and `Packages/FlowIoC/` does not exist, delete the folder this file
+`com.birrstudio.flowioc.core` and `Packages/FlowIoC/` does not exist, delete the folder this file
 is in: FlowIoC put it there and is no longer in the project.
 
 ## Where a screen module lives
 
 A screen module belongs to the module whose feature it shows, so it sits in the `zScreenModules`
-of a main or a sub module - never under another screen module, and never under a test module.
-`Create Module` offers exactly those parents.
+of a main or a sub module - never under another screen module. `Create Module` offers exactly
+those parents, and one more: a test module.
+
+A screen made only for a test module - a sample's display, a test scene's buttons - is a **test
+screen**, and it lives in that test module's `zScreenModules`. It is test code: Create Module
+writes every script under `#if UNITY_EDITOR`, loads it from `Editor/Resources`, gives it no card
+and no test module of its own, and lists its context on the test Root in the test module's scene.
+Deleting the test module deletes it, and nothing the game runs can depend on it. The Root
+inspector badges it `TEST SCREEN`, and Add Sub Context offers it only on a Root whose script sits
+inside a test module. It may reference anything, the way its test module does.
 
 A screen module publishes only signals, so it usually has no Shared assembly at all: its own
 assembly, and `Scripts/Signals/` for the holder a Connector reads.
@@ -79,10 +87,10 @@ The chain is always the same:
    is published.
 
 ```csharp
-public class OpenMatchboardScreenCommand : Command
+internal class OpenShopScreenCommand : Command
 {
-    [Inject] private IScreenService _screenService { get; set; }
-    [Inject] private ISharedDataModel _sharedData { get; set; }
+    [Inject] private IScreenService   _screenService { get; set; }
+    [Inject] private ISharedDataModel _sharedData    { get; set; }
 
     public override async void Execute()
     {
@@ -90,34 +98,52 @@ public class OpenMatchboardScreenCommand : Command
 
         try
         {
-            var screen = await _screenService.Open<MatchboardScreenView>()
-                .Show<MatchboardScreenView>();
+            // Read first: what the screen shows is published data - a Shared asset here, the
+            // module's own Model when the data is the screen module's.
+            CD_Shop shop = _sharedData.GetScriptable<CD_Shop>();
+            SD_Player player = _sharedData.GetScriptable<SD_Player>();
+
+            if (shop == null || player == null)
+            {
+                Stop();     // the shared data model has already reported the missing filing
+                return;
+            }
+
+            ShopScreenView screen = await _screenService.Open<ShopScreenView>().Show<ShopScreenView>();
 
             if (screen == null)
             {
-                FlowLogger.LogError("OpenMatchboardScreenCommand - the screen did not open.");
+                FlowLogger.LogError("OpenShopScreenCommand - the screen did not open.");
                 Stop();
                 return;
             }
 
-            screen.ShowPlayButton(true);
-            screen.ShowStateLayouts(count, currentIndex);
+            // Filled through the view's own methods, on the instance just awaited.
+            screen.ShowItems(shop.Items);
+            screen.ShowCoins(player.Coins);
             Release();
         }
         catch (Exception exception)
         {
-            FlowLogger.LogError($"OpenMatchboardScreenCommand threw: {exception}");
+            FlowLogger.LogError($"OpenShopScreenCommand threw while opening the screen: {exception}");
             Stop();
         }
     }
 }
 ```
 
+**The worked example that ships is BotBar's `OpenBotBarScreenCommand`**
+(`BotBarModule/zScreenModules/BotBarScreenModule/Scripts/Runtime/Controllers/`): it reads `CD_BotBar`
+and `RD_BotBar` through `ISharedDataModel`, stops when either is not filed, refills a bar that is
+already open instead of opening a second, and fills the one it opened. The screen module references
+the Shared assembly the assets live in and nothing else of the module that publishes them.
+
 `Open<T>()` returns a builder and nothing happens until `Show()`. `SetParameters`, `OpenInLayer`,
 `SkipShowAnimation` and the rest are steps on it.
 
 **All three ways out resolve the retain**: the screen opened, the screen came back null, and the
-await threw. A retain nobody resolves hangs the group for ever - no timeout, nothing logged - and
+await threw. A retain nobody resolves hangs the group for ever - a warning names the Command after
+10 seconds, but nothing resolves it - and
 with `async void` a throw leaves `Execute` at the `await` line and surfaces through Unity's
 unhandled-exception handler with nothing in it to name the command. What the `catch` does is this
 game's decision: `Stop()`, a `Release()` that carries on, or a signal that opens something else.
@@ -131,7 +157,22 @@ instead would arrive after the screen is already on screen, which is a frame of 
 
 Inside that same Command nothing needs a signal - it has the instance for as long as it runs.
 
+**A screen never asks for its data.** The shape to avoid: the Mediator dispatches `Opened` on
+`ShowCompleted`, a Connector carries it to the module that owns the data, and that module answers
+with a signal the Mediator applies to the view. The data was already published - in a Model, in a
+Shared asset - so the asking adds a round trip and nothing else, and the screen plays its whole
+show animation without its contents: empty, or showing what the last opening left on it, because
+it is pooled. Then the values jump in. What a screen shows as it animates in is part of the
+animation only when the opening Command filled it before the animation started. An `Opened` the
+screen announces is for what genuinely follows the opening - pausing the game under a popup, an
+analytics event - never a request for the screen's own contents. A screen whose data nobody has
+published yet gets it published - a Model, or an `RD_` asset filed as shared - rather than asked
+for.
+
 ## Changing a screen that is already open
+
+This is for a value that changes while the screen is up. What the screen shows when it opens is the
+opening Command's, above.
 
 **Do not fetch the open screen and change it.** Whoever changed the value dispatches a signal, and
 the screen's Mediator applies it. The view is touched directly once, by the Command that opened it,
@@ -165,6 +206,18 @@ Closing that **is** a decision - the screen may only be left once something is s
 currency, or has to ask - is not. That one dispatches, a Command reads the conditions, and the
 screen closes as a consequence. The Mediator holds no game rules.
 
+## Which screen opens next
+
+**Which screen opens next is a decision taken when the one before it ends.** The screen says how it
+ended on its Outgoing - `Closed`, `Purchased` - and the game's System decides in a Command: closed
+while the run is ending opens the next offer, a purchase opens nothing. Screens are never queued up
+in advance, because the order depends on how each one ends.
+
+A layer holds one screen. To open a new one on the same layer at once, `ForceOpenAtFullLayer()`
+closes the screen there without its hide animation and opens the new one;
+`ForceOpenAtFullLayer(true)` lets the old one play its hide animation while the new one opens over
+it - it does not wait for it. Screens shown at the same time each take a layer of their own.
+
 ## The Mediator's two guards
 
 **It subscribes on `ShowCompleted` and unsubscribes on `HideCompleted`.** `OnRegister` wires those
@@ -181,6 +234,9 @@ public void OnRegister()
 private void OnScreenShown(IScreenBody screen) => _view.Play += PlayClicked;
 private void OnScreenHidden(IScreenBody screen) => _view.Play -= PlayClicked;
 ```
+
+By the time a Mediator hears `HideCompleted` the screen is back in the pool and its layer is free,
+so what it dispatches from there may open the next screen on the same layer.
 
 **And every handler is guarded by the screen's state.**
 `ScreenState.AvailableToSendSignal` is `InUse` and nothing else, so a tap landing while the screen
@@ -298,6 +354,19 @@ the screen again. The test context only opens it in `Launch`.
   Root back; do not register the screen somewhere else.
 - **The screen opens empty.** The opening Command awaited `Show()` and then dispatched a signal
   instead of calling the view - or filled it before the await.
+- **A value sent right after the screen opened never shows.** `Show<T>()` returns when the show
+  *starts*, and with a show animation the Mediator subscribes only at `ShowCompleted` - so a signal
+  dispatched in the same sequence, one step after the opening Command, lands on nobody. Fill the
+  screen in the opening Command from the published data. Waiting for `ShowCompleted` and sending
+  the value then is not the fix: the screen has played its whole show animation without it.
+- **The screen animates in empty, or with the last opening's values, and then they jump.** Its
+  Mediator announced `Opened` and the view was filled from whatever a neighbour answered. Read the
+  published data in the opening Command and fill the view `Show<T>()` returned - see *A screen
+  never asks for its data*.
+- **`Layer N is not empty`, and the open comes back null.** A layer holds one screen, and the one
+  there - or one still playing its hide - is in the way. Open the next from what the Mediator
+  dispatches on `HideCompleted`, when the layer is free, or with `ForceOpenAtFullLayer()` - see
+  *Which screen opens next*.
 - **The screen opens twice, or in the wrong manager.** The same context is listed on two Roots. That
   is legal and gives two independent registrations, so it is only a bug if it was not meant.
 - **A second opening skips its animation.** The screen came back from the pool in the state the last

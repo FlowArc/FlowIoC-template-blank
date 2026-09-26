@@ -5,12 +5,10 @@
         "FlowIoC",
         "Modules.Main.Signals",
         "Modules.Main.Screen.Signals",
-        "Modules.Gameplay.Shared",
         "Modules.Gameplay.Screen.Signals",
         "Modules.Loading.Signals",
         "Modules.Loading.Shared",
-        "Modules.Loading.Screen.Signals",
-        "Modules.LoadingOverlay.Screen.Signals"
+        "Modules.Loading.Screen.Signals"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
