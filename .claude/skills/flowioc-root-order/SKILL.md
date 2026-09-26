@@ -1,6 +1,6 @@
 ---
 name: flowioc-root-order
-description: Use when placing a Root in a FlowIoC scene or choosing its Initialize Order - adding a new module Root, a Service Root, a Connector or a screen Root, deciding which context binds before which, making a Root persistent across a scene load and knowing what its context takes back when it is destroyed, or debugging a null signal holder, a missing binding or a Connector that wired nothing.
+description: Use when placing a Root in a FlowIoC scene or choosing its Initialize Order - adding a new module Root, a Service Root, a Connector or a screen Root, registering a module's pool groups on its Root, deciding which context binds before which, making a Root persistent across a scene load and knowing what its context takes back when it is destroyed, or debugging a null signal holder, a missing binding or a Connector that wired nothing.
 ---
 
 # Ordering Roots in FlowIoC
@@ -26,17 +26,17 @@ can be and `100` is as late.
 
 | Order | Who sits there | Why |
 |---|---|---|
-| -100, -90 | The modules that put data in place before anything reads it | `PostConstruct` runs during the binding pass, not after `Setup`, and each Root finishes its own before the next begins - so being first is what puts data in place before anything reads it. Saved data is restored at `-100` (`LocalSaveRoot`); config is rewritten from an A/B assignment at `-90` (`AbTestFlowServiceRoot`). A service whose `PostConstruct` reads config sits after `-90`, or it reads the original before the variant lands and nothing is logged. |
+| -100, -90 | The modules that put data in place before anything reads it | `PostConstruct` runs during the binding pass, not after `Setup`, and each Root finishes its own before the next begins - so being first is what puts data in place before anything reads it. Saved data is restored at `-100` (`LocalSaveServiceRoot`); config is rewritten from an A/B assignment at `-90` (`AbTestFlowServiceRoot`). A service whose `PostConstruct` reads config sits after `-90`, or it reads the original before the variant lands and nothing is logged. |
 | -80 … -10 | The other Services, on the tens, in the order the boot reads | A Service depends on nothing else, so it comes up early and is ready for everyone. `-80` the asset service, the door every Addressables load goes through; `-70` the screen service and `-60` the pool service, which load through it; then the helpers - `-50` haptics, `-30` world pointers, `-10` the loading service, last because it opens a screen. |
 | 0 - 97 | The game's own modules and systems | Gameplay, camera, the modules this game is made of. |
 | 98 | `ConnectorRoot` | After every module it wires, so the scene reads as modules first and wiring after them. A Connector binds no signal holder anyway - it gets the ones every other context bound. |
 | 99 | `ScreenRoot` | The screen manager owns the screen prefabs, so it is up before the flow that opens the first screen. |
 | 100 | `MainRoot` | The application's entry point. Its `Launch()` dispatches the first signal, last of all. |
 
-What the shipped Roots actually use: `LocalSaveRoot` `-100`, `AbTestFlowServiceRoot` `-90`,
+What the shipped Roots actually use: `LocalSaveServiceRoot` `-100`, `AbTestFlowServiceRoot` `-90`,
 `AssetServiceRoot` `-80`, `ScreenServiceRoot` `-70`, `PoolServiceRoot` `-60`, `HapticServiceRoot`
-`-50`, `WorldPointerServiceRoot` `-30`, `LoadingServiceRoot` `-10`, `GameplayRoot` `0`,
-`CameraRoot` `1`, `ConnectorRoot` `98`, `ScreenRoot` `99`, `MainRoot` `100`.
+`-50`, `WorldPointerServiceRoot` `-30`, `LoadingServiceRoot` `-10`, `GameplaySystemRoot` `0`,
+`CameraSystemRoot` `1`, `ConnectorRoot` `98`, `ScreenRoot` `99`, `MainRoot` `100`.
 
 A game's own service takes a free ten, or a unit below the ten it leans on - `-69` for one that
 wants the screen service bound first. Inside the `0 - 97` band the exact number rarely matters.
@@ -55,7 +55,7 @@ MainScene
 ├── PoolServiceRoot            -60
 ├── LoadingServiceRoot         -10
 ├── ------------------------
-├── GameplayRoot                 0
+├── GameplaySystemRoot           0
 ├── ------------------------
 ├── ConnectorRoot               98
 ├── ScreenRoot                  99
@@ -78,6 +78,18 @@ a trap for the next reader.
 A sub-context listed on a Root - a screen context, a Connector's - goes through every pass with
 the Root that lists it, after the Root's own context: it binds, it is set up, and it is launched,
 so a screen context's `Launch` is where it dispatches what it loads for itself.
+
+**A Root never sits under another Root.** What a service needs from the module that uses it is a
+sub-context of the service's, listed on that module's own Root and configured on the entry - the
+service's Root is never edited. A screen's layer is the screen entry's settings; a module's pool
+groups are a `PoolSubContext` entry on the module's Root, registered in its `Setup`:
+
+```
+GameplaySystemRoot
+  Sub Contexts
+    GameplayScreenContext        (Override Screen, layer)
+    PoolSubContext               Groups: combat → CD_CombatPool
+```
 
 So the order decides who *binds* first, and who is called first within the `Setup()` and
 `Launch()` passes. It does not decide whether cross-module access is safe: the frame barrier
@@ -145,6 +157,9 @@ Two things follow, and both are easy to get wrong:
 
 ## What goes wrong
 
+- A Root nested under a module's Root to register something with a service - the old
+  `PoolAdapterRoot` under `GameplaySystemRoot`. List the service's sub-context on the module's Root
+  instead.
 - A Root left at `0` that other Roots inject from. It binds in registration order relative to its
   peers, so the failure is intermittent - fine on one machine, null on another.
 - A Connector mixed in among the modules it wires. It still works, because the barrier saves it,

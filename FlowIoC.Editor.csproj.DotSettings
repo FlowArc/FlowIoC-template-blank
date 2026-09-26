@@ -1,0 +1,8 @@
+<wpf:ResourceDictionary xml:space="preserve" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:s="clr-namespace:System;assembly=mscorlib" xmlns:ss="urn:shemas-jetbrains-com:settings-storage-xaml" xmlns:wpf="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+	<s:Boolean x:Key="/Default/CodeInspection/NamespaceProvider/NamespaceFoldersToSkip/=library/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/CodeInspection/NamespaceProvider/NamespaceFoldersToSkip/=library_005Cpackagecache/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/CodeInspection/NamespaceProvider/NamespaceFoldersToSkip/=library_005Cpackagecache_005Ccom_002Eflowarc_002Eflowioc_002Ecore_00402ac9efe74375/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/CodeInspection/NamespaceProvider/NamespaceFoldersToSkip/=library_005Cpackagecache_005Ccom_002Eflowarc_002Eflowioc_002Ecore_00402ac9efe74375_005Ceditor/@EntryIndexedValue">True</s:Boolean>
+	<s:Boolean x:Key="/Default/CodeInspection/NamespaceProvider/NamespaceFoldersToSkip/=library_005Cpackagecache_005Ccom_002Eflowarc_002Eflowioc_002Ecore_00402ac9efe74375_005Ceditor_005Ccodegenerator_005Ceditor/@EntryIndexedValue">False</s:Boolean>
+	<s:Boolean x:Key="/Default/CodeInspection/NamespaceProvider/NamespaceFoldersToSkip/=library_005Cpackagecache_005Ccom_002Eflowarc_002Eflowioc_002Ecore_00402ac9efe74375_005Ceditor_005Cconfig_005Cmoduleconfig_005Ceditor/@EntryIndexedValue">False</s:Boolean>
+</wpf:ResourceDictionary>
