@@ -16,7 +16,7 @@ MonoBehaviour:
   m_GUID: e2f4373ce0ab3b84c95a372fdb1b5ed9
   m_SerializeEntries:
   - m_GUID: 72844180b6a1be84e95e00bb17c93b31
-    m_Address: T_LoadingBackground
+    m_Address: SPR_LoadingBackground
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

@@ -36,9 +36,10 @@ code generators and namespace tools depend on the exact shape they produce.
 
 ## Create Module: what to fill in
 
-**Name** excludes the suffix. The window appends it: `Player` with type Main becomes
-`PlayerModule`, with type Test becomes `PlayerTestModule`, with type Screen becomes
-`PlayerScreenModule`.
+**Name** excludes the suffix. The generator appends it, so the window's preview and a call from a
+script agree: `Player` with type Main becomes `PlayerModule`, with type Test becomes
+`PlayerTestModule`, with type Screen becomes `PlayerScreenModule`. A name that already ends in
+`Test` or `Screen` is left as it is.
 
 **Module Type** decides where it lands. A Main module parented to `Assets/Modules` is a top level
 module; the same type parented to another module makes it a sub module under `zSubModules`. Test
@@ -85,14 +86,16 @@ Decide the rest before pressing Create:
 
 ### Adding a folder afterwards
 
-Nothing has to be deleted. Run Create Module again with the same name and the same parent, tick
-the folders that are missing, and untick **Create Root**, **Create Context** and **Create
-Signals**. Existing files are left alone; the missing folders appear and the module index is
-refreshed so the other generators can find them.
+Nothing has to be deleted. Run Create Module again with the same name and the same parent and tick
+the folders that are missing. A module that already exists - its folder holds its asmdef or its
+card - only gets the folders it lacks: no file in it is written, whatever else is ticked, and the
+console lists the folders that were made. The module index is refreshed so the other generators can
+find them.
 
-For `Shared` specifically, prefer `Tools/FlowIoC/Edit Module/Add Shared or Signals` - it also adds the reference
-to every screen, sub and test module already under the module, and the same window writes a public
-signal holder for a module created without one.
+`Shared` and `Signals` are the exception: a run on an existing module does not make either, because
+each is an assembly the module has to reference. Use `Tools/FlowIoC/Edit Module/Add Shared or
+Signals` - it writes the folder, its assembly and the reference from every screen, sub and test
+module already under the module, and a public signal holder for a module created without one.
 
 ## The two signal holders, and which folder each lives in
 
@@ -170,6 +173,8 @@ var asm = System.Array.Find(System.AppDomain.CurrentDomain.GetAssemblies(),
 var menuType = asm.GetType("FlowIoC.Editor.CodeGenerator.Menus.Module.CreateModule.CreateModuleMenu");
 var genType  = asm.GetType("FlowIoC.Editor.CodeGenerator.Menus.Module.ModuleGeneration.ModuleGenerator");
 var modType  = asm.GetType("FlowIoC.Editor.CodeGenerator.Menus.Module.ModuleType");
+var roleType = asm.GetType("FlowIoC.Editor.CodeGenerator.Menus.Module.ModuleRole");
+var cardType = asm.GetType("FlowIoC.Editor.ModuleCards.ModuleCardDraftEVO");
 
 var win = UnityEngine.ScriptableObject.CreateInstance(menuType);   // OnEnable fills the defaults
 var configMap   = menuType.GetField("_directoryConfigMap", flags).GetValue(win);
@@ -177,16 +182,58 @@ var actionNames = menuType.GetField("_actionNames", flags).GetValue(win);
 var selected    = menuType.GetField("_selectedOptionalFolders", flags).GetValue(win);
 // add the FolderEVO entries you want out of configMap's RootFolders before calling
 
+// Both signal folders start ticked, as the window seeds them - the window's Signals tick IS
+// the PublicSignals folder in this list. For a module with no public surface - a Connector, or
+// a Service that answers its caller - take the two out and pass createSignals false below, or
+// the module gets an empty Modules.<Name>.Signals assembly with nothing in it:
+var folders = (System.Collections.IList) selected;
+for (int i = folders.Count - 1; i >= 0; i--)
+{
+    string kind = folders[i].GetType().GetField("Type").GetValue(folders[i]).ToString();
+    if (kind == "PublicSignals" || kind == "Signals") folders.RemoveAt(i);
+}
+
+// The card's two authored lines, written into MODULE.md as the module is made. Leave one empty
+// and the stub's placeholder goes in instead, and Module Scanner reports it until it is written.
+var card = System.Activator.CreateInstance(cardType, true);
+cardType.GetProperty("Purpose",  flags).SetValue(card, "Owns the player's currency and level.");
+cardType.GetProperty("Concepts", flags).SetValue(card, "player, currency, level, IPlayerModel");
+
 genType.GetMethod("CreateModuleStructure",
         System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
     .Invoke(null, new object[] {
-        "Player",                                          // name, without "Module"
-        System.IO.Path.Combine(UnityEngine.Application.dataPath, "Modules"),
-        System.Enum.Parse(modType, "Main"),
+        "Player",                                          // name, without "Module" and without the type's suffix
+        System.IO.Path.Combine(UnityEngine.Application.dataPath, "Modules"),   // Assets/Modules, or the owning module's folder - absolute, either slash
+        System.Enum.Parse(modType, "Main"),                // Main, Test or Screen
         selected, configMap, actionNames,
-        true, true, true, false, null                      // root, context, signals, screen, screenSettings
+        true, true, true, false,                           // createRoot, createContext, createSignals, createScreen
+        false,                                             // allowAsSubContext
+        System.Enum.Parse(roleType, "System"),             // System, Service or Core - read only for a Main module with a Root
+        null,                                              // screenSettings: a screen's ScreenModuleSettings, else null
+        card                                               // ModuleCardDraftEVO, or null for the placeholders; a Test module gets no card
     });
 ```
+
+All fourteen arguments go in: `Invoke` fills no optional parameter on its own, and a shorter list
+is a `TargetParameterCountException` before anything runs.
+
+**The name is the bare one, for a Test or a Screen module too.** The generator appends the type's
+suffix - `"Player"` with type Test is `PlayerTestModule`, with type Screen `PlayerScreenModule` -
+and leaves a name that already carries it alone. The suffix used to be the window's to add, and a
+call from here that named a test module `"Ads"` wrote `zTestModules/AdsModule` with the parent's
+own assembly name, and its namespace settings over the parent's. Read the folder name and the
+asmdef name back after the call.
+
+**The parent is any absolute path to the folder.** `D:\work\Game\Assets\Modules\GameplayModule`
+built from a script's own working directory is the same folder as Unity's
+`D:/Work/Game/Assets/Modules/GameplayModule`, and the generator reads it so. A parent written that way used to put a top level module under
+`zSubModules` and leave a screen's prefab not addressable.
+
+**The role counts only for a Main module with a Root.** A Test or a Screen module, and a Main
+module made without a Root, are written plain whatever role is passed - `PlayerTestRoot` and
+`PlayerTestContext`, never `PlayerTestSystemRoot` - the same way the window writes them. That
+collapse used to be the window's too, and a call from here with `System` for a test module wrote
+the role into both names.
 
 Three things to know before relying on this:
 
@@ -215,6 +262,70 @@ asm.GetType("FlowIoC.Editor.Console.FlowModuleGenerator")
 `ModuleDeleter.DeleteModule` opens no dialog and returns the list of what it removed, so it is safe
 to call this way too. Anything else that ends in `EditorUtility.DisplayDialog` is not: a modal
 blocks the Editor and the connection with it until somebody clicks.
+
+## Before you say the module is done
+
+"Is anything left?" is answered by the Module Scanner, not from memory. It is the checklist -
+folders, assembly, references, namespace settings, index entry, log channel and card, for every
+module in the project - and the window and the warning the Editor prints on load (`Module Scanner
+found N issues across M modules`) both come from one runner, reachable from `eval` without opening
+anything:
+
+```csharp
+var f = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance;
+var asm = System.Array.Find(System.AppDomain.CurrentDomain.GetAssemblies(), a => a.GetName().Name == "FlowIoC.Editor");
+System.Func<object, string, object> prop = (o, n) => o.GetType().GetProperty(n, f).GetValue(o);
+
+var factory  = System.Activator.CreateInstance(asm.GetType("FlowIoC.Editor.ModuleScanner.ModuleTargetFactory"), true);
+var built    = factory.GetType().GetMethod("Build", f).Invoke(factory, null);
+var pipeline = System.Activator.CreateInstance(asm.GetType("FlowIoC.Editor.ModuleScanner.ModuleCheckPipeline"), true);
+var runner   = System.Activator.CreateInstance(asm.GetType("FlowIoC.Editor.ModuleScanner.ModuleScannerRunner"), f, null, new[] {pipeline}, null);
+var report   = runner.GetType().GetMethod("Run", f).Invoke(runner,
+    new[] {built.GetType().GetField("Item1").GetValue(built), built.GetType().GetField("Item2").GetValue(built)});
+
+var lines = new System.Text.StringBuilder("Issues=" + prop(report, "IssueCount") + "\n");
+foreach (var finding in (System.Collections.IEnumerable) prop(report, "Project"))
+    if (prop(finding, "Status").ToString() != "Ok") lines.AppendLine("  project: " + prop(finding, "Message"));
+foreach (var row in (System.Collections.IEnumerable) prop(report, "Modules"))
+foreach (var finding in (System.Collections.IEnumerable) prop(row, "Findings"))
+    if (prop(finding, "Status").ToString() != "Ok")
+        lines.AppendLine("  " + prop(row, "Name") + " [" + prop(finding, "Status") + "] " + prop(finding, "Message"));
+return lines.ToString();
+```
+
+`Fixable` is what the window's Fix All repairs: a mandatory folder missing, namespace settings
+stale, an orphaned `.csproj` at the root. `Manual` is a decision: a card with its purpose
+unwritten, a module reaching another module's Signals assembly. Report both as they stand - fix
+what the task covers, name the rest - and never answer "nothing left" without having run this.
+
+Then, for the module you just made:
+
+- **The card.** `MODULE.md` above the generated block: Purpose and Concepts written - the scanner
+  reports the placeholders - and Decisions and Known gaps where there is anything to say. Pass
+  `card` at creation or write it straight after; it is part of making the module, not a follow-up
+  for somebody to ask for. **A test module has no card**: the generator writes none, the scanner
+  asks for none, and writing one by hand is a file nothing reads. The module it tests carries it
+  on its Sub modules line.
+- **The name on disk.** `<Name>Module`, `<Name>TestModule` or `<Name>ScreenModule`, and the asmdef
+  inside it `Modules.<Name>`, `Modules.<Name>.Test` or `Modules.<Name>.Screen`. A wrong name is
+  not put right by renaming the folder: `ModuleDeleter.DeleteModule`, then create again, because a
+  folder deleted by hand leaves its `.csproj` and `.csproj.DotSettings` at the project root.
+- **The index.** `Assets/Plugins/FlowIoC/MODULES.md` lists the module with its purpose and its
+  concepts after the next compile. A test module gets no line of its own there either.
+- **A screen's test scene.** `<Name>ScreenTestScene` under the screen's test module, with the
+  prefab on its layer - written by the half that runs after the reload.
+- **A test module of your own.** Made through the generator too, so it carries the mandatory
+  folders; a test module copied or written by hand is the one the scanner finds a folder short.
+  The smallest useful one is three things in its scene: the module's own Root and the Root of
+  every Service it leans on; the test Root, whose adapter files under *Shared Scriptables* a
+  ready-made asset for each producer that is not in the scene - the `RD_Match` gameplay would
+  have written; and a `Launch` in the test context that sends the module's incoming signals the
+  way the game would, `InjectionBinderCrossContext.GetInstance<PlayerSignals>().Incoming
+  .InitializePlayer.Dispatch()`. A test module may reference anything, so it stands in for the
+  Connector too. A state the scene starts from - level 10 - is a copy of the data asset
+  (`SD_Player_Test` in the test module's `Scriptables/`, filed in place of the original, with
+  `IsTest` ticked on `LocalSaveServiceRoot`), never a field on the test Root; the data-types skill
+  has the whole of it. Then press Play in that scene.
 
 ## A panel a module ships
 
@@ -262,6 +373,10 @@ A panel that authors an asset - the A/B Test Editor over `CD_AbTests` - draws th
 a, b)`, so undo, dirtying and saving are Unity's; it edits what the Inspector would edit, which
 is inside the line. Defer a change to a list's shape - an element added or removed - until the
 rows are drawn, because the rows are walked by index.
+
+A section that grows long folds: `if (painter.HeadingFoldable("Arrows", add)) { ...rows... }` draws
+the heading with a triangle and returns whether it is open. Its buttons keep working while it is
+shut, and which sections are shut is remembered per developer.
 
 Put the file operations in a class of their own beside the panel (`LocalSaveFileTools`) so the
 workspace's tests reach them without a window; the panel only draws.

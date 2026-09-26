@@ -181,6 +181,9 @@ far its scope reaches:
 | A Model | The data is the **module's** state rather than one sub system's |
 | A module of its own | The data is large, or its scope reaches past this module |
 
+Once the data is a Model's, how the Model holds it - one record per thing, filled from its config
+and save assets - is the `flowioc-models` skill.
+
 ## Splitting into sub services and sub systems
 
 Both split the same way, into `Services/Sub/` and `Systems/Sub/`, and for **two** reasons:
@@ -236,6 +239,10 @@ ticked, and either tick can be changed before the module is written.
   should be named like one.
 - **A `System.cs` with methods that do work.** Those methods are Commands that never got written.
   The Flow Console shows nothing, and the sequence they belonged in cannot wait for them.
+- **A sub system that hooks `IUpdateProvider` and runs the frame.** The same mistake, every frame:
+  moving, judging and drawing are Commands in a tick sequence, the tick dispatched every frame from
+  `IUpdateProvider` by a Command the flow starts (the controllers skill, *Work that runs every
+  frame*).
 - **A Service binding its interface with `InjectionBinder`.** It compiles, the module works, and
   no other module can inject it - which is the one thing a Service is for.
 - **A sub service bound across contexts.** It is the Service's own machinery; a caller that
